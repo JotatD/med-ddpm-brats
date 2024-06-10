@@ -31,10 +31,10 @@ def load_ddpm_model(weights_file, device):
 
 device = torch.device("cuda")
 
-model = load_ddpm_model("/home/juan.lugo/Code/med-ddpm/model/model_brats.pt", device)
-inputfolder = "/home/juan.lugo/Code/med-ddpm/current_images/masks"
-img_dir = "/home/juan.lugo/Code/med-ddpm/fast_sampling_results/image"
-msk_dir = "/home/juan.lugo/Code/med-ddpm/fast_sampling_results/ddim/mask"
+model = load_ddpm_model("../model/model_brats.pt", device)
+inputfolder = "../current_images/masks"
+img_dir = "../fast_sampling_results/image"
+msk_dir = "../fast_sampling_results/ddim/mask"
 sampling_step = 10
 os.makedirs(img_dir, exist_ok=True)
 os.makedirs(msk_dir, exist_ok=True)
