@@ -127,6 +127,8 @@ def load_input_tensor(inputfile):
     input_tensor = input_transform(img)
     return input_tensor
 
+
+
 def make_diffusion(params_file, steps, timestep_respacing):
     from guided_diffusion.respace import SpacedDiffusion, space_timesteps
     import guided_diffusion.gaussian_diffusion as gd
@@ -155,11 +157,20 @@ class Wrap(nn.Module):
         self.net = net
         self.condition = cond
 
+    # def forward(self, x, t):
+    #     breakpoint()
+    #     with torch.no_grad():
+    #         x = x.unsqueeze(1)
+    #         x = torch.cat([x, self.condition], 1)
+    #         x = self.net(x, t)
+    #         x = x.squeeze(1)
+    #     return x
+        
     def forward(self, x, t):
-
         with torch.no_grad():
-            x = x.unsqueeze(1)
-            x = torch.cat([x, self.condition], 1)
+            x = torch.cat([x, self.condition], 0)
+            x = x.unsqueeze(0)
+            breakpoint()
             x = self.net(x, t)
             x = x.squeeze(1)
         return x

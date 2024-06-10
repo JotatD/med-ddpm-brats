@@ -144,13 +144,19 @@ class NiftiPairImageGenerator(Dataset):
 
     def resize_img_4d(self, input_img):
         h, w, d, c = input_img.shape
-        result_img = np.zeros((self.input_size, self.input_size, self.depth_size, 2))
+        result_img = np.zeros((self.input_size, self.input_size, self.depth_size, 4))
+        # print(h, w, d, c)
+        # print(self.input_size, self.input_size, self.depth_size, 2)
         if h != self.input_size or w != self.input_size or d != self.depth_size:
             for ch in range(c):
                 buff = input_img.copy()[..., ch]
                 img = tio.ScalarImage(tensor=buff[np.newaxis, ...])
                 cop = tio.Resize((self.input_size, self.input_size, self.depth_size))
                 img = np.asarray(cop(img))[0]
+                # print("img shape", img.shape)
+                # print("ch", ch)
+                # print("c", c)
+                # print("result_img shape", result_img.shape)
                 result_img[..., ch] += img
             return result_img
         else:

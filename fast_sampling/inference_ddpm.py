@@ -9,9 +9,8 @@ os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 set_cuda_params()
 device = torch.device("cuda")
-
 model = load_model("weights/3dcddpm_net.pth", device)
-inputfolder = "../dataset/mask"
+inputfolder = "../dataset/whole_head/mask"
 img_dir = "export/ddim/image"
 msk_dir = "export/ddim/mask"
 sampling_step = 10
@@ -19,8 +18,6 @@ os.makedirs(img_dir, exist_ok=True)
 os.makedirs(msk_dir, exist_ok=True)
 
 mask_list = sorted(glob.glob(f"{inputfolder}/*.nii.gz"))
-print(len(mask_list))
-# -
 
 for mask in mask_list:
     name = mask.split('/')[-1]
