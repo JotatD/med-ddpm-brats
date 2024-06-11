@@ -157,20 +157,25 @@ class Wrap(nn.Module):
         self.net = net
         self.condition = cond
 
+    def forward(self, x, t):
+        with torch.no_grad():
+            if x.shape == self.condition.shape:
+                x = torch.cat([x, self.condition], 1)
+                x = self.net(x, t)
+            else:
+                x = x.unsqueeze(1)
+                x = torch.cat([x, self.condition], 1)
+                x = self.net(x, t)
+                x = x.squeeze(1)
+        return x
+
+
+        
     # def forward(self, x, t):
-    #     breakpoint()
     #     with torch.no_grad():
-    #         x = x.unsqueeze(1)
-    #         x = torch.cat([x, self.condition], 1)
+    #         x = torch.cat([x, self.condition], 0)
+    #         x = x.unsqueeze(0)
+    #         breakpoint()
     #         x = self.net(x, t)
     #         x = x.squeeze(1)
     #     return x
-        
-    def forward(self, x, t):
-        with torch.no_grad():
-            x = torch.cat([x, self.condition], 0)
-            x = x.unsqueeze(0)
-            breakpoint()
-            x = self.net(x, t)
-            x = x.squeeze(1)
-        return x
