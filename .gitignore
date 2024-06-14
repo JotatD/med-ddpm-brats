@@ -9,3 +9,10 @@ model
 custom_dataset.py
 visualization.ipynb
 fast_sampling_results
+delete_later.ipynb
+notebooks
+final_masks_dataset
+final_masks_helper
+*.ipynb
+training_dataset
+patches.zip

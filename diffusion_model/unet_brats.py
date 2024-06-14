@@ -276,6 +276,7 @@ class UNetModel(nn.Module):
         h = self.middle_block(h, emb)
         for module in self.output_blocks:
             h = th.cat([h, hs.pop()], dim=1)
+            #toublemaker for cuda is here (some iteration of it)
             h = module(h, emb)
         h = h.type(x.dtype)
         return self.out(h)
@@ -318,7 +319,6 @@ def create_model(
     attention_ds = []
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
-
     return UNetModel(
         image_size=image_size,
         in_channels=in_channels,

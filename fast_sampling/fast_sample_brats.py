@@ -33,7 +33,7 @@ def load_ddpm_model(weights_file, device):
 device = torch.device("cuda")
 
 model = load_ddpm_model("../model/model_brats.pt", device)
-inputfolder = "/home/juan.lugo/Code/med-ddpm/fast_sampling_input"
+inputfolder = "/home/juan.lugo/Code/med-ddpm/dataset/brats2021/seg"
 img_dir = "../fast_sampling_results/image"
 msk_dir = "../fast_sampling_results/mask"
 
@@ -60,10 +60,9 @@ from utils_brats import label2masks, resize_img_4d, input_transform, processImg,
 
 input_size = 192
 depth_size = 144
-
-
 for sampling_step in range(250, 251, 10):
-    exportfolder = f"/home/juan.lugo/Code/med-ddpm/fast_sampling_results/image_{sampling_step}"
+    print(sampling_step)
+    exportfolder = f"/home/juan.lugo/Code/med-ddpm/fast_sampling_results2/image_{sampling_step}"
     os.makedirs(exportfolder, exist_ok=True)
 
     os.makedirs(f"{exportfolder}/t1", exist_ok=True)
