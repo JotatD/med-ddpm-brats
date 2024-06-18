@@ -13,7 +13,68 @@ from .modules import *
 
 NUM_CLASSES = 1
 
-class UNetModel(nn.Module):
+from torchgpipe.skip import Namespace, pop, skippable, stash
+from torchgpipe import GPipe
+from torchgpipe.balance import balance_by_time
+
+class Embedder(nn.Module):
+    def __init__(self, model_channels):
+        super().__init__()
+        self.model_channels = model_channels
+
+    def forward(self, input):
+        x, timesteps = input
+        return x, timestep_embedding(timesteps, self.model_channels)
+
+    
+class EmbeddingWrapper(nn.Module):
+    def __init__(self, sublayer: nn.Module, use_emb=True):
+        super().__init__()
+        self.sublayer = sublayer
+        self.use_emb = use_emb
+
+    def forward(self, input):
+        x, emb = input
+        if self.use_emb:
+            return self.sublayer(x, emb), emb
+        else:
+            return x, self.sublayer(emb)
+
+class DropEmbedding(nn.Module):
+    def __init__(self, sublayer):
+        super().__init__()
+        self.sublayer = sublayer
+
+    def forward(self, input):
+        x, emb = input
+        return self.sublayer(x)
+
+@skippable(pop=['cat'])
+class UpCat(nn.Module):
+    def __init__(self, sublayer):
+        super().__init__()
+        self.sublayer = sublayer
+
+    def forward(self, input):
+        h, emb = input  
+        hs_pop = yield pop('cat')
+        h = th.cat([h, hs_pop], dim=1)
+        return self.sublayer(h, emb), emb
+    
+@skippable(stash=['cat'])
+class DownStash(nn.Module):
+    def __init__(self, sublayer):
+        super().__init__()
+        self.sublayer = sublayer
+
+    def forward(self, input):
+        x, emb = input
+        x = self.sublayer(x, emb)
+        yield stash('cat', x)
+        return x, emb
+    
+
+class SequentialUNetModel(nn.Module):
     """
     The full UNet model with attention and timestep embedding.
     :param in_channels: channels in the input Tensor.
@@ -87,11 +148,11 @@ class UNetModel(nn.Module):
         self.num_heads_upsample = num_heads_upsample
 
         time_embed_dim = model_channels * 4
-        self.time_embed = nn.Sequential(
+        self.time_embed = EmbeddingWrapper(nn.Sequential(
             linear(model_channels, time_embed_dim),
             nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
-        )
+        ), use_emb=False)
 
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
@@ -234,6 +295,18 @@ class UNetModel(nn.Module):
             zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)),
         )
 
+        self.embedder = Embedder(model_channels)
+
+        self.namespaces = [Namespace() for _ in range(15)]
+        self.input_blocks = nn.Sequential(*[DownStash(module).isolate(self.namespaces[i]) for i, module in enumerate(self.input_blocks)])
+        self.middle_block = EmbeddingWrapper(self.middle_block)
+        self.output_blocks = nn.Sequential(*[UpCat(module).isolate(self.namespaces[-((i+1)%15)]) for i, module in enumerate(self.output_blocks)])
+        self.out = DropEmbedding(self.out)
+
+        self.complete_seq = nn.Sequential(
+            self.embedder, self.time_embed, self.input_blocks, self.middle_block, self.output_blocks, self.out
+        )
+
     def convert_to_fp16(self):
         """
         Convert the torso of the model to float16.
@@ -262,25 +335,9 @@ class UNetModel(nn.Module):
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
 
-        hs = []
-        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        return self.complete_seq((x, timesteps))
+    
 
-        if self.num_classes is not None:
-            assert y.shape == (x.shape[0],)
-            emb = emb + self.label_emb(y)
-
-        h = x.type(self.dtype)
-        for module in self.input_blocks:
-            h = module(h, emb)
-            hs.append(h)
-        h = self.middle_block(h, emb)
-        for module in self.output_blocks:
-            h = th.cat([h, hs.pop()], dim=1)
-            #toublemaker for cuda is here (some iteration of it)
-            h = module(h, emb)
-        breakpoint()
-        h = h.type(x.dtype)
-        return self.out(h)
 
 
 def create_model(
@@ -320,7 +377,7 @@ def create_model(
     attention_ds = []
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
-    return UNetModel(
+    return SequentialUNetModel(
         image_size=image_size,
         in_channels=in_channels,
         model_channels=num_channels,

@@ -26,7 +26,7 @@ def create_dirs(output_dir):
     return dirs
 
 def load_data_list(data_dir, modality):
-    return sorted(glob.glob(os.path.join(data_dir, "*", f"*_{modality}.nii.gz")))
+    return sorted(glob.glob(os.path.join(data_dir, modality, f"*.nii.gz")))
 
 def preprocess_and_save(subject, output_dirs, img_names):
     for modality, img in subject.items():
@@ -50,7 +50,6 @@ def main():
 
     modalities = ["t1", "t1ce", "t2", "flair", "seg"]
     data_lists = {modality: load_data_list(args.data_dir, modality) for modality in modalities}
-    
     # Preprocess and crop
     for idx in tqdm(range(len(data_lists["t1"]))):
         img_names = {modality: os.path.basename(data_lists[modality][idx]) for modality in modalities}
@@ -61,7 +60,7 @@ def main():
             flair_img=tio.ScalarImage(data_lists["flair"][idx]),
             seg=tio.LabelMap(data_lists["seg"][idx])
         )
-        transform = tio.CropOrPad((192, 192, 144))
+        transform = tio.CropOrPad((128, 128, 128))
         subject = transform(subject)
         preprocess_and_save(subject, output_dirs, img_names)
     

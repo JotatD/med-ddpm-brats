@@ -270,7 +270,8 @@ class GaussianDiffusion(nn.Module):
 
         if self.with_condition:
             x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-            x_recon = self.denoise_fn(torch.cat([x_noisy, condition_tensors], 1), t)
+            breakpoint()
+            x_recon = self.denoise_fn((torch.cat([x_noisy, condition_tensors], 1), t))
         else:
             x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
             x_recon = self.denoise_fn(x_noisy, t)
@@ -322,7 +323,7 @@ class Trainer(object):
         self.save_and_sample_every = save_and_sample_every
 
         self.batch_size = train_batch_size
-        self.image_size = diffusion_model.image_size
+        self.image_size = image_size
         self.depth_size = depth_size
         self.gradient_accumulate_every = gradient_accumulate_every
         self.train_num_steps = train_num_steps
@@ -389,91 +390,93 @@ class Trainer(object):
         backwards = partial(loss_backwards, self.fp16)
         start_time = time.time()
 
-        while self.step < self.train_num_steps:
-            accumulated_loss = []
-            for i in range(self.gradient_accumulate_every):
-                if self.with_condition:
-                    data = next(self.dl)
-                    input_tensors = data['input'].cuda()
-                    target_tensors = data['target'].cuda()
-                    loss = self.model(target_tensors, condition_tensors=input_tensors)
-                else:
-                    data = next(self.dl).cuda()
-                    loss = self.model(data)
-                loss = loss.sum()/self.batch_size
-                print(f'{self.step}: {loss.item()}')
-                backwards(loss / self.gradient_accumulate_every, self.opt)
-                accumulated_loss.append(loss.item())
+        with torch.no_grad():
 
-            # Record here
-            average_loss = np.mean(accumulated_loss)
-            end_time = time.time()
-            self.writer.add_scalar("training_loss", average_loss, self.step)
+            while self.step < self.train_num_steps:
+                accumulated_loss = []
+                for i in range(self.gradient_accumulate_every):
+                    if self.with_condition:
+                        data = next(self.dl)
+                        input_tensors = data['input'].cuda()
+                        target_tensors = data['target'].cuda()
+                        loss = self.model(target_tensors, condition_tensors=input_tensors)
+                    else:
+                        data = next(self.dl).cuda()
+                        loss = self.model(data)
+                    loss = loss.sum()/self.batch_size
+                    print(f'{self.step}: {loss.item()}')
+                    backwards(loss / self.gradient_accumulate_every, self.opt)
+                    accumulated_loss.append(loss.item())
 
-            self.opt.step()
-            self.opt.zero_grad()
+                # Record here
+                average_loss = np.mean(accumulated_loss)
+                end_time = time.time()
+                self.writer.add_scalar("training_loss", average_loss, self.step)
 
-            if self.step % self.update_ema_every == 0:
-                self.step_ema()
+                self.opt.step()
+                self.opt.zero_grad()
 
-            if self.step != 0 and self.step % self.save_and_sample_every == 0:
-                milestone = self.step // self.save_and_sample_every
-                batches = num_to_groups(1, self.batch_size)
+                if self.step % self.update_ema_every == 0:
+                    self.step_ema()
 
-                if self.with_condition:
-                    all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n, condition_tensors=self.ds.sample_conditions(batch_size=n)), batches))
-                    all_images = torch.cat(all_images_list, dim=0)
-                else:
-                    all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n), batches))
-                    all_images = torch.cat(all_images_list, dim=0)
+                if self.step != 0 and self.step % self.save_and_sample_every == 0:
+                    milestone = self.step // self.save_and_sample_every
+                    batches = num_to_groups(1, self.batch_size)
 
-                t1_images = all_images[:, 0, ...]
-                t1ce_images = all_images[:, 1, ...]
-                t2_images = all_images[:, 2, ...]
-                flair_images = all_images[:, 3, ...]
+                    if self.with_condition:
+                        all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n, condition_tensors=self.ds.sample_conditions(batch_size=n)), batches))
+                        all_images = torch.cat(all_images_list, dim=0)
+                    else:
+                        all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n), batches))
+                        all_images = torch.cat(all_images_list, dim=0)
+
+                    t1_images = all_images[:, 0, ...]
+                    t1ce_images = all_images[:, 1, ...]
+                    t2_images = all_images[:, 2, ...]
+                    flair_images = all_images[:, 3, ...]
+                        
+                    t1_images = torch.squeeze(t1_images)
+                    t1_images = t1_images.transpose(2, 0)
+                    t1ce_images = torch.squeeze(t1ce_images)
+                    t1ce_images = t1ce_images.transpose(2, 0)
+                    t2_images = torch.squeeze(t2_images)
+                    t2_images = t2_images.transpose(2, 0)
+                    flair_images = torch.squeeze(flair_images)
+                    flair_images = flair_images.transpose(2, 0)
                     
-                t1_images = torch.squeeze(t1_images)
-                t1_images = t1_images.transpose(2, 0)
-                t1ce_images = torch.squeeze(t1ce_images)
-                t1ce_images = t1ce_images.transpose(2, 0)
-                t2_images = torch.squeeze(t2_images)
-                t2_images = t2_images.transpose(2, 0)
-                flair_images = torch.squeeze(flair_images)
-                flair_images = flair_images.transpose(2, 0)
+                    sampleImage1 = t1_images.cpu().numpy()
+                    sampleImage1=sampleImage1.reshape([self.image_size, self.image_size, self.depth_size])
+                    sampleImage2 = t1ce_images.cpu().numpy()
+                    sampleImage2=sampleImage2.reshape([self.image_size, self.image_size, self.depth_size])
+                    sampleImage3 = t2_images.cpu().numpy()
+                    sampleImage3=sampleImage3.reshape([self.image_size, self.image_size, self.depth_size])
+                    sampleImage4 = flair_images.cpu().numpy()
+                    sampleImage4=sampleImage4.reshape([self.image_size, self.image_size, self.depth_size])
+                    ref = nib.load("reference_brats.nii.gz")
+                    nifti_img = nib.Nifti1Image(sampleImage1, affine=ref.affine)
+                    nib.save(nifti_img, str(self.results_folder / f't1/sample-{milestone}.nii.gz'))
+                    nifti_img = nib.Nifti1Image(sampleImage2, affine=ref.affine)
+                    nib.save(nifti_img, str(self.results_folder / f't1ce/sample-{milestone}.nii.gz'))
+                    nifti_img = nib.Nifti1Image(sampleImage3, affine=ref.affine)
+                    nib.save(nifti_img, str(self.results_folder / f't2/sample-{milestone}.nii.gz'))
+                    nifti_img = nib.Nifti1Image(sampleImage4, affine=ref.affine)
+                    nib.save(nifti_img, str(self.results_folder / f'flair/sample-{milestone}.nii.gz'))
                 
-                sampleImage1 = t1_images.cpu().numpy()
-                sampleImage1=sampleImage1.reshape([self.image_size, self.image_size, self.depth_size])
-                sampleImage2 = t1ce_images.cpu().numpy()
-                sampleImage2=sampleImage2.reshape([self.image_size, self.image_size, self.depth_size])
-                sampleImage3 = t2_images.cpu().numpy()
-                sampleImage3=sampleImage3.reshape([self.image_size, self.image_size, self.depth_size])
-                sampleImage4 = flair_images.cpu().numpy()
-                sampleImage4=sampleImage4.reshape([self.image_size, self.image_size, self.depth_size])
-                ref = nib.load("reference_brats.nii.gz")
-                nifti_img = nib.Nifti1Image(sampleImage1, affine=ref.affine)
-                nib.save(nifti_img, str(self.results_folder / f't1/sample-{milestone}.nii.gz'))
-                nifti_img = nib.Nifti1Image(sampleImage2, affine=ref.affine)
-                nib.save(nifti_img, str(self.results_folder / f't1ce/sample-{milestone}.nii.gz'))
-                nifti_img = nib.Nifti1Image(sampleImage3, affine=ref.affine)
-                nib.save(nifti_img, str(self.results_folder / f't2/sample-{milestone}.nii.gz'))
-                nifti_img = nib.Nifti1Image(sampleImage4, affine=ref.affine)
-                nib.save(nifti_img, str(self.results_folder / f'flair/sample-{milestone}.nii.gz'))
-               
-                self.save(milestone)
+                    self.save(milestone)
 
-            self.step += 1
+                self.step += 1
 
-        print('training completed')
-        end_time = time.time()
-        execution_time = (end_time - start_time)/3600
-        self.writer.add_hparams(
-            {
-                "lr": self.train_lr,
-                "batchsize": self.train_batch_size,
-                "image_size":self.image_size,
-                "depth_size":self.depth_size,
-                "execution_time (hour)":execution_time
-            },
-            {"last_loss":average_loss}
-        )
-        self.writer.close()
+            print('training completed')
+            end_time = time.time()
+            execution_time = (end_time - start_time)/3600
+            self.writer.add_hparams(
+                {
+                    "lr": self.train_lr,
+                    "batchsize": self.train_batch_size,
+                    "image_size":self.image_size,
+                    "depth_size":self.depth_size,
+                    "execution_time (hour)":execution_time
+                },
+                {"last_loss":average_loss}
+            )
+            self.writer.close()

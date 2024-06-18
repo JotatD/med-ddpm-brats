@@ -2,7 +2,8 @@
 # +
 from torchvision.transforms import RandomCrop, Compose, ToPILImage, Resize, ToTensor, Lambda
 from diffusion_model.trainer_brats import GaussianDiffusion, Trainer
-from diffusion_model.unet_brats import create_model
+# from diffusion_model.unet_brats import create_model
+from diffusion_model.sequential_unet_brats import create_model
 from dataset_brats import NiftiImageGenerator, NiftiPairImageGenerator
 import argparse
 import torch
@@ -81,10 +82,10 @@ import peft
 
 model = create_model(input_size, num_channels, num_res_blocks, in_channels=in_channels, out_channels=out_channels).cuda()
 
-
+sequence = model.complete_seq
 
 diffusion = GaussianDiffusion(
-    model,
+    sequence,
     image_size = input_size,
     depth_size = depth_size,
     timesteps = args.timesteps,   # number of steps
@@ -93,33 +94,35 @@ diffusion = GaussianDiffusion(
     channels=out_channels
 ).cuda()
 
-layer_to_lora = []
-layers_to_tune = ["out.2"]
-for n, m in diffusion.named_modules():
-    # print(n , type(m))
-    if 'Conv1D' in str(type(m)) or 'Linear' in str(type(m)):
-        layer_to_lora.append(n)
+from torchgpipe.balance import balance_by_time
+from torchgpipe import GPipe
+import torchgpipe
+
+partitions = torch.cuda.device_count()
+print('No of GPUS: ', partitions)
+sample = (torch.rand(1, 8, 144, 192, 192), torch.tensor([130]))
+BALANCE = balance_by_time(partitions, sequence, sample)
+CHUNKS = 1
+
+print('Balance: ', BALANCE)
+breakpoint()
+sequence = GPipe(sequence, balance=BALANCE, chunks=CHUNKS)
+
+# In and Out devices
+in_device = sequence.devices[0]
+out_device = sequence.devices[-1]
+
+torchgpipe.skip.verify_skippables(sequence)
 
 
-config = peft.LoraConfig(
-    r=8,
-    target_modules=layer_to_lora[-3:],
-    modules_to_save=layers_to_tune
-)
-
-lora_model = peft.get_peft_model(diffusion, config)
-
-print(sum([p.numel() for p in lora_model.parameters() if p.requires_grad]))
-print(sum([p.numel() for p in lora_model.parameters() if not p.requires_grad]))
-
-if len(resume_weight) > 0:
-    weight = torch.load(resume_weight, map_location='cuda')
-    lora_model.load_state_dict(weight['model'])
-    print("Model Loaded!")
+# if len(resume_weight) > 0:
+#     weight = torch.load(resume_weight, map_location='cuda')
+#     diffusion.load_state_dict(weight['ema'])
+#     print("Model Loaded!")
 
 
 trainer = Trainer(
-    lora_model,
+    diffusion,
     dataset,
     image_size = input_size,
     depth_size = depth_size,
